@@ -26,6 +26,18 @@ class IngestionError(SecfilerRagError):
     """A source filing could not be loaded, cleaned, or split."""
 
 
+class RetrievalError(SecfilerRagError):
+    """A retrieval strategy could not run.
+
+    Covers a missing collection and malformed filters — not "no results", which
+    is a valid outcome rather than an error.
+    """
+
+
+class EvaluationError(SecfilerRagError):
+    """An evaluation dataset is missing, malformed, or internally invalid."""
+
+
 class IndexingError(SecfilerRagError):
     """Embedding or vector-store writing failed.
 
