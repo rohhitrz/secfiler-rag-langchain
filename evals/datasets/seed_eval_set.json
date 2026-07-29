@@ -1,0 +1,26 @@
+{
+  "name": "seed",
+  "version": 1,
+  "description": "Hand-written evaluation pairs carried over from the raw-Python build. Two tiers: lexical regression guards, and natural-language questions. Expected answers are substrings so the set survives re-chunking.",
+  "conventions": {
+    "company": "lowercase ticker — must match filing metadata exactly",
+    "expected_substring": "distinctive but forgiving; sourced from CLEANED filing text, never from a browser view",
+    "tier_1": "near-tautological — a failure here means the harness or index is broken, not that retrieval is weak",
+    "tier_2": "realistic phrasing — this is the number that should actually move"
+  },
+  "known_issues": [
+    "'net sales' is loose enough to match many chunks and can produce a false positive — tighten when the set grows",
+    "'Powerwall' appears in exactly one TSLA chunk, so that item is unusually easy",
+    "8 items is thin; target is 25+ before any retrieval claim carries weight"
+  ],
+  "items": [
+    {"tier": 1, "query": "derivative instruments", "expected_substring": "uses derivative instruments", "company": "aapl"},
+    {"tier": 1, "query": "global minimum tax standards", "expected_substring": "global minimum tax standards", "company": "aapl"},
+    {"tier": 1, "query": "net sales", "expected_substring": "net sales", "company": "aapl"},
+    {"tier": 1, "query": "research and development", "expected_substring": "research and development", "company": "msft"},
+    {"tier": 1, "query": "Megapack", "expected_substring": "Megapack", "company": "tsla"},
+    {"tier": 2, "query": "what was Apple's total revenue this year?", "expected_substring": "net sales", "company": "aapl"},
+    {"tier": 2, "query": "What are Microsoft's main business segments?", "expected_substring": "Productivity and Business Processes", "company": "msft"},
+    {"tier": 2, "query": "What products make up Tesla's energy business?", "expected_substring": "Powerwall", "company": "tsla"}
+  ]
+}
