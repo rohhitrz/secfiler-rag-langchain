@@ -1,30 +1,12 @@
 """Configuration contract: defaults, overrides, validation, secret safety."""
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from pydantic_settings import SettingsConfigDict
 
-from secfiler_rag.config.settings import Settings, get_settings
-
-
-class IsolatedSettings(Settings):
-    """Settings with dotenv loading disabled.
-
-    The developer's real `.env` sits at the repo root. Reading it here would
-    make these assertions depend on one machine's secrets, so the subclass
-    overrides only `env_file` and inherits every field, validator and the
-    frozen/extra behaviour under test.
-    """
-
-    model_config = SettingsConfigDict(env_file=None)
-
-
-def _settings(**overrides: Any) -> Settings:
-    """Build Settings from process env + explicit overrides only."""
-    return IsolatedSettings(**overrides)
+from secfiler_rag.config.settings import get_settings
+from tests.conftest import make_settings as _settings
 
 
 def test_defaults_are_safe_for_local_development(clean_env):

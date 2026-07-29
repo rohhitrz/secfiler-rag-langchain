@@ -85,11 +85,53 @@ class Settings(BaseSettings):
     )
 
     # --- Providers ---------------------------------------------------------
-    # Optional today: no module consumes them yet. They become required
-    # (validated at point of use) when the indexing module lands.
+    # Optional at load time so the package imports and unit-tests without
+    # credentials. Required at point of use — `build_embeddings()` raises
+    # ConfigurationError rather than letting a None key reach the API client.
     openai_api_key: SecretStr | None = Field(
         default=None,
         description="OpenAI key for embeddings and generation.",
+    )
+
+    # --- Embeddings --------------------------------------------------------
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model. Cheap, strong baseline; "
+        "a finance-tuned model is a measured upgrade, not an assumption.",
+    )
+    embedding_dimensions: int = Field(
+        default=1536,
+        gt=0,
+        description="Vector width. Must match the collection's configured size — "
+        "a mismatch is rejected at startup, not at upsert time.",
+    )
+    embedding_batch_size: int = Field(
+        default=100,
+        gt=0,
+        description="Chunks per embedding API call. Trades request count against "
+        "blast radius when one request fails.",
+    )
+
+    # --- Vector store ------------------------------------------------------
+    qdrant_url: str = Field(
+        default="http://localhost:6333",
+        description="Where the Qdrant server is reachable.",
+    )
+    qdrant_api_key: SecretStr | None = Field(
+        default=None,
+        description="Required only when Qdrant runs with auth enabled.",
+    )
+    qdrant_collection: str = Field(
+        default="filings",
+        min_length=1,
+        description="Single collection for every company; scoping is a payload "
+        "filter, not a separate collection.",
+    )
+    qdrant_timeout: int = Field(
+        default=60,
+        gt=0,
+        description="Seconds before a Qdrant call is abandoned. Batch upserts of "
+        "hundreds of points exceed the client's short default.",
     )
 
     # --- Observability -----------------------------------------------------

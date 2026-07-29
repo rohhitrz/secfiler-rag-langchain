@@ -24,3 +24,11 @@ class ConfigurationError(SecfilerRagError):
 
 class IngestionError(SecfilerRagError):
     """A source filing could not be loaded, cleaned, or split."""
+
+
+class IndexingError(SecfilerRagError):
+    """Embedding or vector-store writing failed.
+
+    Covers collection misconfiguration (a dimension mismatch between the
+    embedding model and an existing collection) as well as upsert failures.
+    """
