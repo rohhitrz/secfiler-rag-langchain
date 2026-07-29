@@ -39,10 +39,14 @@ For package placement, see [`03-folder-structure.md`](03-folder-structure.md).
 ```
 SecfilerRagError
 ├── ConfigurationError
-└── IngestionError
+├── IngestionError
+├── IndexingError
+├── RetrievalError
+└── EvaluationError
 ```
 
-More leaf types are added when new failure modes appear (e.g. `IndexingError`, `RetrievalError`).
+Leaf types are added as each module lands, so the hierarchy stays a truthful
+map of how this system actually fails.
 
 ---
 
@@ -228,13 +232,92 @@ server (`uv run pytest -m integration`).
 
 ---
 
-## Module 3+ — Retrieval / evaluation / generation
+## Module 3 — Dense retrieval + evaluation (implemented)
 
-Contracts will be filled when those modules land. Standing rules:
+```text
+retrieval/dense.py     DenseRetriever(store, *, default_top_k=5)
+                         .search(query, filters=None, top_k=None) -> list[Document]
+                         .as_search_fn() -> SearchFn
+                         .as_langchain_retriever(*, filters=None, top_k=None)
+                       build_filter(filters) -> qmodels.Filter | None
 
-- Retrievers implement LangChain `BaseRetriever` (or a thin adapter)
-- Eval harness accepts a retriever + dataset; returns metrics
-- Generation always receives an explicit list of context docs (no hidden global state)
+evaluation/dataset.py  load_dataset(path) -> EvalDataset
+                       EvalItem(query, expected_substring, filters, tier)
+
+evaluation/harness.py  evaluate(dataset, search_fn, *, top_k=5) -> EvalReport
+                       SearchFn = Callable[[str, Mapping[str, Any], int],
+                                           Sequence[Document]]
+
+evaluation/metrics.py  hit_rate(hits) -> float
+                       mean_reciprocal_rank(ranks) -> float
+```
+
+CLI: `scripts/evaluate_retrieval.py [--in-memory] [--top-k K...] [--audit]`
+
+### The harness contract (frozen)
+
+The harness receives a **callable**, never a retriever object, and forwards
+`filters` without inspecting them. It must never learn that companies, BM25 or
+Qdrant exist. Enforced by `test_harness_never_inspects_filters`. Rationale in
+[ADR 0010](adr/0010-retriever-agnostic-eval-harness.md).
+
+Knowledge is split so that stays true:
+
+| Component | Knows |
+|---|---|
+| Dataset loader | The dataset's on-disk schema |
+| Harness | That items have queries, expected text, and opaque filters |
+| `DenseRetriever` | That `company` maps to `metadata.company` |
+
+### Filter translation
+
+`{"company": "aapl"}` → `Filter(must=[FieldCondition(key="metadata.company",
+match=MatchValue(value="aapl"))])`. An unknown key raises `RetrievalError` — a
+silently dropped filter returns another company's chunks and looks like a
+quality problem rather than a bug.
+
+### Report surface
+
+| Member | Purpose |
+|---|---|
+| `hit_rate` | Fraction of items whose expected text was retrieved |
+| `mrr` | Mean reciprocal rank — position, not just presence |
+| `median_latency_ms` | Retrieval latency, harness overhead excluded |
+| `by_tier(n)` | Tier 1 (smoke) and tier 2 (realistic) scored separately |
+| `misses` | Failed items with their top results, for diagnosis |
+| `ItemResult.matched_rank / matched_chunk_id / matched_excerpt()` | Auditing a pass |
+
+### Baseline (dense only, 1,309 chunks, `text-embedding-3-small`)
+
+| k | Hit rate | MRR |
+|---|---|---|
+| 1 | 75.0% | 0.750 |
+| 3 | 87.5% | 0.812 |
+| 5 | 87.5% | 0.812 |
+| 10 | **100.0%** | 0.833 |
+
+Recall is solved by k=10; MRR moves only 0.812 → 0.833. **The gap is precision
+at the top, not recall** — a reranker's job, now measured rather than assumed.
+
+### Failure modes
+
+| Condition | Result |
+|---|---|
+| Empty query | `RetrievalError` |
+| Unknown filter key | `RetrievalError` listing supported keys |
+| Filter matches nothing | Empty list — a valid outcome, not an error |
+| Dataset missing / malformed / empty | `EvaluationError` |
+| Item without query or expected substring | `EvaluationError` — never skipped, since a dropped item makes the denominator wrong |
+
+---
+
+## Modules 4+ — Hybrid / rerank / generation
+
+Contracts filled when those modules land. Standing rules:
+
+- Every retrieval strategy exposes the same `SearchFn` shape
+- Every stage that reorders results overwrites `metadata["score"]` with its own
+- Generation always receives an explicit list of context documents
 
 ---
 

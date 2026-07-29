@@ -16,7 +16,7 @@ fresh. Each file follows the same shape:
 | [00 — Foundation](00-foundation.md) | Repo structure, config, logging, testing, dependency policy |
 | [01 — Ingestion](01-ingestion.md) | HTML cleaning, inline XBRL, tables, chunking |
 | [02 — Indexing](02-indexing.md) | Point identity, collection lifecycle, payload filters, testing without Docker |
-| _03 — Retrieval & evaluation_ | (with Module 3) |
+| [03 — Retrieval & evaluation](03-retrieval-and-evaluation.md) | Dense search, the eval harness, diagnosing a real miss |
 | _04 — Hybrid & reranking_ | (with Modules 4–5) |
 | _05 — Generation_ | (with Module 6) |
 

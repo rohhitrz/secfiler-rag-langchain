@@ -22,8 +22,8 @@
 | 0 | Repo cleanup, structure, foundational docs | ✅ **DONE** |
 | 1 | Ingestion — HTML load, clean, chunk → `Document` | ✅ **DONE** |
 | 2 | Indexing — OpenAI embeddings + Qdrant upsert | ✅ **DONE** |
-| 3 | Dense retrieval + company filter + eval harness | 🔜 **NEXT** |
-| 4 | Sparse (BM25) + hybrid RRF fusion | Not started |
+| 3 | Dense retrieval + company filter + eval harness | ✅ **DONE** |
+| 4 | Sparse (BM25) + hybrid RRF fusion | 🔜 **NEXT** |
 | 5 | Cross-encoder reranking | Not started |
 | 6 | Answer generation (cited answers) | Not started |
 | 7 | LangSmith observability + richer evals | Not started |
@@ -63,6 +63,10 @@
 | Payload path | **`metadata.company`**, not `company` | `QdrantVectorStore` nests metadata; a bare-field filter matches nothing, silently |
 | Distance | Cosine | OpenAI embeddings encode meaning in direction, not magnitude |
 | Test strategy | In-memory Qdrant + `DeterministicFakeEmbedding` | Real engine behaviour with no Docker and no API key |
+| Eval harness | Takes a `SearchFn`, not a retriever; filters opaque | **FROZEN** — the moment it learns a strategy, cross-strategy numbers die |
+| Ground truth | Substring, not chunk_id | Survives re-chunking, so before/after chunker changes stay comparable |
+| Metrics | Hit rate **and** MRR, tiers reported separately | A reranker moves MRR while hit rate stays flat |
+| Audit | Every pass records rank + chunk + excerpt | A green number nobody read is not evidence |
 
 ---
 
@@ -168,28 +172,77 @@ unexecuted. `--dry-run` confirms 1,309 chunks ingest cleanly.
 
 ---
 
+## What's built (Module 3 — Dense retrieval + evaluation)
+
+`retrieval/dense.py` + `evaluation/{dataset,harness,metrics}.py` + CLI
+`scripts/evaluate_retrieval.py [--in-memory] [--top-k K...] [--audit]`.
+
+### 📊 BASELINE — dense retrieval, 1,309 chunks, `text-embedding-3-small`
+
+| k | Hit rate | MRR |
+|---|---|---|
+| 1 | 75.0% | 0.750 |
+| 3 | 87.5% | 0.812 |
+| 5 | 87.5% | 0.812 |
+| 10 | **100.0%** | 0.833 |
+
+Median latency ~440 ms per query (almost entirely the embedding call).
+Tier 2 (natural language) = **100% at k=3**. Tier 1 (keyword) = 80%.
+
+**Read the curve, it is the brief for Modules 4–5:** recall is *solved* by
+k=10 — every answer is in the pool — while MRR moves only 0.812 → 0.833. The
+gap is **precision at the top, not recall.** That is a reranker's job, and it
+is now measured rather than assumed.
+
+### The one miss, diagnosed
+
+Tier-1 item `"derivative instruments"` expecting `"uses derivative instruments"`.
+
+1. Verified the substring exists in the cleaned corpus — exactly once. So the
+   eval item is fair and retrieval genuinely missed. (Had it not existed, the
+   next hour would have been spent "fixing" retrieval for an eval bug.)
+2. 11 Apple chunks mention the phrase; the target (chunk 127) sits at **rank 6**
+   and does not move at k=20 or k=50.
+3. Rephrased as a real question — *"Does Apple use derivative instruments to
+   hedge foreign currency risk?"* — the same chunk comes back at **rank 2**.
+
+Diagnosis: retrieval noise on a bare keyword query where 11 chunks are
+near-identical in embedding space. Left unfixed on purpose — it is the case
+Module 5's reranker has to beat.
+
+**Verification:** 142 unit tests · ruff clean · mypy strict clean (45 files).
+
+**Docs:** ADR 0010, LLD Module 3, `interview/03-retrieval-and-evaluation.md`.
+
+**Carried-forward flags:**
+- 8 eval items is thin — one item is 12.5 points. Grow to 25+ before trusting small deltas
+- `"net sales"` substring is loose enough to pass by accident
+- No cross-company queries ("compare Apple and Tesla") — needs multi-filter retrieval and a different metric
+- Retrieval-only metrics; faithfulness needs generation + an LLM judge
+- Still no live Qdrant run (Docker unavailable this session) — baseline was produced with in-memory Qdrant and the real embedding API
+
+---
+
 ## What's next
 
-**First: run the real index.** Needs `docker compose up -d` and
-`OPENAI_API_KEY`. Cost is well under a cent for 1,309 chunks.
+**Module 4 — Sparse retrieval + hybrid fusion**
 
-```
-uv run python scripts/index_filings.py
-uv run pytest -m integration
-```
+1. Add `rank-bm25`; `retrieval/sparse.py` with a single shared tokenizer used
+   for **both** indexing and querying (symmetry is mandatory)
+2. Measure BM25 alone against the same dataset — the honest vectorless baseline
+3. `retrieval/fusion.py` — RRF, `score = Σ 1/(k + rank)`, k=60. Rank-based, so
+   the BM25 (~0–13) vs cosine (~0–1) scale mismatch never arises
+4. Identity key for fusion is `(company, chunk_id)` — `chunk_id` alone collides
+5. Each retriever contributes top-10 → RRF fuses to 10 → later sliced to 3
+   **after** reranking, never before
+6. Every stage that reorders must overwrite `metadata["score"]`
+7. Measure hybrid vs dense vs sparse on the same harness; audit before believing
+8. Decide: in-memory BM25 vs Qdrant native sparse vectors (a real trade-off now
+   that the corpus is indexed)
 
-**Module 3 — Dense retrieval + eval harness**
-
-1. `retrieval/dense.py` — a `BaseRetriever` over the Qdrant store with an
-   optional company filter
-2. Company scoping via `COMPANY_PAYLOAD_FIELD`
-3. `evaluation/harness.py` — retriever-agnostic: takes a retriever + dataset,
-   returns metrics. Never learns which strategy it is scoring
-4. Metrics: hit-rate first, then MRR
-5. Load `evals/datasets/seed_eval_set.json`; audit every pass before trusting it
-6. First real retrieval number for this build — the baseline every later module
-   is measured against
-7. Docs: ADR on harness design, LLD, interview Q&A
+**Also outstanding:** run against live Qdrant once Docker is available —
+`docker compose up -d && uv run python scripts/index_filings.py` then
+`uv run pytest -m integration`.
 
 ---
 
@@ -204,4 +257,4 @@ uv run pytest -m integration
 
 ---
 
-*Last updated: Module 2 complete — indexing built with idempotent upserts and verified collection schema; not yet run against live Qdrant. Next: Module 3 (Dense retrieval + eval harness).*
+*Last updated: Module 3 complete — first measured baseline: 87.5% hit rate @ k=5, 100% @ k=10, MRR 0.833. Recall solved, ranking is the gap. Next: Module 4 (Hybrid search).*
