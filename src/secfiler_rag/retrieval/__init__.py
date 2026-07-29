@@ -1,11 +1,16 @@
 """Stage 3 — query in, ranked `Document` list out.
 
-Responsibility: every strategy for *finding* context — dense (vector), sparse
-(BM25), hybrid fusion (RRF), metadata filtering, and cross-encoder reranking.
+Responsibility: every strategy for *finding* context — dense (vector) search
+today; sparse (BM25), hybrid fusion and reranking as later modules.
 
-Every retriever exposes the same LangChain `BaseRetriever` interface, which is
-what lets the evaluation harness stay strategy-agnostic: it takes a retriever,
-not a hard-coded search function.
+Every strategy exposes the same `(query, filters, top_k) -> list[Document]`
+shape, which is what lets the evaluation harness score any of them without
+knowing which it is scoring.
 
-Status: not implemented yet.
+This package never imports `indexing`'s write path — only the payload-layout
+constants it must agree with.
 """
+
+from secfiler_rag.retrieval.dense import DenseRetriever, build_filter
+
+__all__ = ["DenseRetriever", "build_filter"]
