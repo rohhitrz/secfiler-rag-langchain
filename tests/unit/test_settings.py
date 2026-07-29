@@ -92,5 +92,16 @@ def test_unknown_env_keys_are_ignored(clean_env):
     assert _settings().environment == "local"
 
 
+def test_chunk_overlap_must_be_smaller_than_chunk_size(clean_env):
+    """At overlap >= size the splitter's stride is zero — it stops advancing."""
+    with pytest.raises(ValidationError, match="chunk_overlap"):
+        _settings(chunk_size=500, chunk_overlap=500)
+
+
+def test_chunk_size_must_be_positive(clean_env):
+    with pytest.raises(ValidationError):
+        _settings(chunk_size=0)
+
+
 def test_get_settings_returns_a_cached_singleton():
     assert get_settings() is get_settings()

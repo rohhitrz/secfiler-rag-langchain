@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "ci", "staging", "production"]
@@ -70,6 +70,20 @@ class Settings(BaseSettings):
         description="Root of the local data directory, resolved against the process CWD.",
     )
 
+    # --- Ingestion ---------------------------------------------------------
+    chunk_size: int = Field(
+        default=1000,
+        gt=0,
+        description="Target characters per chunk. Baseline carried over from the "
+        "previous build; change only with an eval number to justify it.",
+    )
+    chunk_overlap: int = Field(
+        default=200,
+        ge=0,
+        description="Characters shared between neighbouring chunks, so a fact split "
+        "across a boundary survives in at least one of them.",
+    )
+
     # --- Providers ---------------------------------------------------------
     # Optional today: no module consumes them yet. They become required
     # (validated at point of use) when the indexing module lands.
@@ -98,6 +112,21 @@ class Settings(BaseSettings):
     def _expand_data_dir(cls, value: Path) -> Path:
         """Expand `~` so `DATA_DIR=~/corpora` behaves the way a user expects."""
         return value.expanduser()
+
+    @model_validator(mode="after")
+    def _check_overlap_fits_chunk(self) -> Settings:
+        """Reject an overlap that is not smaller than the chunk size.
+
+        At `overlap >= chunk_size` the splitter's stride becomes zero or
+        negative — it stops advancing through the text. Caught here at startup
+        rather than as a hang or a memory blow-up mid-ingestion.
+        """
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({self.chunk_overlap}) must be smaller than "
+                f"chunk_size ({self.chunk_size})"
+            )
+        return self
 
     @property
     def raw_data_dir(self) -> Path:
