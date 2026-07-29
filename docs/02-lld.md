@@ -146,24 +146,85 @@ surfaces weeks later as an unexplained bad answer.
 
 ---
 
-## Module 2 — Indexing (planned)
-
-### Public surface (intended)
+## Module 2 — Indexing (implemented)
 
 ```text
-ensure_collection(client, ...) -> None
-index_documents(docs: list[Document]) -> int  # points upserted
+embeddings.py  build_embeddings(settings=None) -> Embeddings
+
+collection.py  build_client(settings=None) -> QdrantClient
+               ensure_collection(client, *, collection_name, vector_size,
+                                 recreate=False) -> bool   # True if created
+               ensure_payload_index(client, *, collection_name) -> None
+               count_points(client, collection_name) -> int
+
+indexer.py     point_id(company, chunk_id) -> str
+               build_vector_store(client, embeddings, *, collection_name)
+                   -> QdrantVectorStore
+               index_documents(documents, *, client, embeddings,
+                               settings=None, recreate=False) -> int
 ```
 
-### Collection
+CLI: `scripts/index_filings.py [--recreate] [--dry-run]`
 
-- Name: `filings` (from settings once added)
-- Distance: Cosine
-- Vector size: embedding model dimension (1536 for `text-embedding-3-small`)
+### Collection schema
 
-### Idempotency
+| Property | Value |
+|---|---|
+| Name | `filings` (`QDRANT_COLLECTION`) |
+| Vector size | `EMBEDDING_DIMENSIONS` (1536) |
+| Distance | Cosine — OpenAI embeddings encode meaning in direction, not magnitude |
+| Payload index | `metadata.company`, keyword |
 
-Same `(company, chunk_id)` → same point ID → re-index overwrites, does not duplicate.
+Created explicitly, never auto-created on first write. An existing collection's
+vector size is **verified**; a mismatch raises `IndexingError` naming both
+numbers.
+
+### Payload layout (LangChain-imposed)
+
+```json
+{
+  "page_content": "Total net sales | $416,161 | 6% | ...",
+  "metadata": {"company": "aapl", "chunk_id": 12,
+               "source": "aapl-2025.htm", "start_index": 9840}
+}
+```
+
+`QdrantVectorStore` nests metadata rather than storing it at the root, so
+**every filter and index addresses `metadata.company`**, exposed as the single
+constant `COMPANY_PAYLOAD_FIELD`. A filter on the bare field name matches
+nothing and raises nothing.
+
+### Point identity
+
+```python
+point_id = str(uuid5(NAMESPACE_DNS, f"{company}-{chunk_id}"))
+```
+
+Deterministic → re-indexing upserts in place. `company` is required because
+`chunk_id` restarts per filing; the `-` separator prevents
+`("aapl1", 2)` colliding with `("aapl", 12)`. Rationale in
+[ADR 0009](adr/0009-deterministic-point-ids.md).
+
+### Failure modes
+
+| Condition | Result |
+|---|---|
+| `OPENAI_API_KEY` missing | `ConfigurationError` naming the variable |
+| Empty document list | `IndexingError` |
+| Document missing `company` / `chunk_id` | `IndexingError` |
+| Two documents share `(company, chunk_id)` | `IndexingError` — identity broken upstream |
+| Existing collection has a different vector size | `IndexingError` with both sizes and the fix |
+| Payload index already exists | No-op |
+
+### Testing approach
+
+Unit tests use `QdrantClient(location=":memory:")` — the real local engine, no
+Docker — with `DeterministicFakeEmbedding`. That covers idempotency, metadata
+round-trip, batching, filter scoping and the dimension check in milliseconds.
+
+Payload indexes have no effect in local mode, so index behaviour and the real
+1536-dimension embedding output are covered by integration tests against a live
+server (`uv run pytest -m integration`).
 
 ---
 

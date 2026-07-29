@@ -8,7 +8,7 @@ Built with **LangChain**, **Qdrant**, **OpenAI embeddings**, and **LangSmith** �
 |---|---|
 | **Corpus** | FY2025 10-K HTML for AAPL, MSFT, TSLA |
 | **Python** | 3.12+ · packaged with `uv` |
-| **Status** | Ingestion complete (1,309 chunks) · indexing next |
+| **Status** | Indexing complete · dense retrieval next |
 
 ---
 
@@ -73,6 +73,16 @@ docker compose up -d
 # dashboard: http://localhost:6333/dashboard
 ```
 
+### Build the index
+
+```bash
+uv run python scripts/index_filings.py --dry-run
+```
+
+```bash
+uv run python scripts/index_filings.py
+```
+
 ### Tests
 
 ```bash
@@ -100,7 +110,7 @@ src/secfiler_rag/
   config/                  # pydantic-settings
   core/                    # logging, exceptions
   ingestion/               # HTML → Documents          ✅
-  indexing/                # embed + Qdrant            (Module 2)
+  indexing/                # embed + Qdrant            ✅
   retrieval/               # search strategies         (Modules 3–5)
   generation/              # cited answers             (Module 6)
   evaluation/              # harness + metrics         (Module 3+)
@@ -145,8 +155,9 @@ tests/unit|integration/
 
 1. ✅ Module 0 — clean repo, structure, foundation docs
 2. ✅ Module 1 — ingestion (HTML → cleaned text → 1,309 chunks)
-3. 🔜 Module 2 — indexing (OpenAI embeddings + Qdrant)
-4. Dense retrieval → hybrid → rerank → generation → serving
+3. ✅ Module 2 — indexing (OpenAI embeddings + Qdrant, idempotent re-index)
+4. 🔜 Module 3 — dense retrieval + eval harness
+5. Hybrid → rerank → generation → serving
 
 Details in [`PROGRESS.md`](PROGRESS.md).
 

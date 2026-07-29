@@ -21,8 +21,8 @@
 |---|---|---|
 | 0 | Repo cleanup, structure, foundational docs | ✅ **DONE** |
 | 1 | Ingestion — HTML load, clean, chunk → `Document` | ✅ **DONE** |
-| 2 | Indexing — OpenAI embeddings + Qdrant upsert | 🔜 **NEXT** |
-| 3 | Dense retrieval + company filter + eval harness | Not started |
+| 2 | Indexing — OpenAI embeddings + Qdrant upsert | ✅ **DONE** |
+| 3 | Dense retrieval + company filter + eval harness | 🔜 **NEXT** |
 | 4 | Sparse (BM25) + hybrid RRF fusion | Not started |
 | 5 | Cross-encoder reranking | Not started |
 | 6 | Answer generation (cited answers) | Not started |
@@ -58,6 +58,11 @@
 | Chunking | `RecursiveCharacterTextSplitter`, 1000/200 | Structure-first; baseline carried over pending eval numbers |
 | Chunk identity | `(company, chunk_id)` pair | IDs restart per filing |
 | Filenames | `{company}-{year}.htm`, lowercase, enforced | Uppercase would silently never match a payload filter |
+| Point IDs | `uuid5(NAMESPACE_DNS, f"{company}-{chunk_id}")` | Idempotent re-index; the pair is the identity, separator is load-bearing |
+| Collection | Single `filings`, explicit creation, dim verified | Auto-creation makes the schema a side effect of whichever path ran first |
+| Payload path | **`metadata.company`**, not `company` | `QdrantVectorStore` nests metadata; a bare-field filter matches nothing, silently |
+| Distance | Cosine | OpenAI embeddings encode meaning in direction, not magnitude |
+| Test strategy | In-memory Qdrant + `DeterministicFakeEmbedding` | Real engine behaviour with no Docker and no API key |
 
 ---
 
@@ -126,18 +131,65 @@ clean (27 files). Integration tests assert on real FY2025 figures (`416,161`,
 
 ---
 
+## What's built (Module 2 — Indexing)
+
+`indexing/` = `embeddings` + `collection` + `indexer`, plus a thin
+`scripts/index_filings.py` CLI (`--recreate`, `--dry-run`).
+
+**Key decisions:**
+- Deterministic `uuid5` point IDs → re-running the indexer overwrites instead
+  of appending. Auto-generated IDs fail *silently*: the second run succeeds and
+  the corpus doubles.
+- Collection created explicitly with dimension verification. An existing
+  collection built for a different embedding model now raises a named error
+  instead of returning nonsense at query time.
+- Keyword payload index on `metadata.company` — note the prefix.
+  `QdrantVectorStore` nests metadata, so a filter on bare `company` matches
+  nothing and raises nothing. Pinned as `COMPANY_PAYLOAD_FIELD` + a test.
+- Embeddings built lazily; a missing key raises `ConfigurationError` naming the
+  variable rather than a 401 from inside the OpenAI client.
+
+**Verification:** 94 unit tests pass · ruff clean · mypy strict clean (36 files,
+now covering `scripts/` too). Unit tests use in-memory Qdrant — the real local
+engine — so idempotency, metadata round-trip, batching, filter scoping and the
+dimension check are all genuine behaviour tests, no mocks.
+
+**Not yet run against live infrastructure.** Docker was not running during this
+session, so the OpenAI + live-Qdrant integration tests are written but
+unexecuted. `--dry-run` confirms 1,309 chunks ingest cleanly.
+
+**Docs:** ADR 0009, LLD Module 2, `interview/02-indexing.md`.
+
+**Carried-forward flags:**
+- No resume/checkpoint on a partially failed indexing run
+- No orphan cleanup if a re-chunk produces fewer chunks (`--recreate` is the blunt fix)
+- Sync client only — the read path needs `AsyncQdrantClient` when it enters a request handler
+- Sparse vectors in Qdrant may be a better home for BM25 than an in-memory index (decide in the hybrid module)
+
+---
+
 ## What's next
 
-**Module 2 — Indexing**
+**First: run the real index.** Needs `docker compose up -d` and
+`OPENAI_API_KEY`. Cost is well under a cent for 1,309 chunks.
 
-1. Add `langchain-openai` + `langchain-qdrant` + `qdrant-client` (deps land with the module)
-2. Add Qdrant + embedding settings (`QDRANT_URL`, collection name, model, batch size)
-3. Embed chunks with `text-embedding-3-small` (1536-d), batched
-4. Collection lifecycle: create/verify, cosine distance, dimension check
-5. Deterministic point IDs — `uuid5(NAMESPACE_DNS, f"{company}-{chunk_id}")` — so re-indexing overwrites instead of duplicating
-6. Payload index on `company` so filtering stays cheap
-7. Integration test against live Qdrant; unit tests with a fake embedder
-8. Docs: ADR for point-ID scheme + single-collection choice, LLD, interview Q&A
+```
+uv run python scripts/index_filings.py
+uv run pytest -m integration
+```
+
+**Module 3 — Dense retrieval + eval harness**
+
+1. `retrieval/dense.py` — a `BaseRetriever` over the Qdrant store with an
+   optional company filter
+2. Company scoping via `COMPANY_PAYLOAD_FIELD`
+3. `evaluation/harness.py` — retriever-agnostic: takes a retriever + dataset,
+   returns metrics. Never learns which strategy it is scoring
+4. Metrics: hit-rate first, then MRR
+5. Load `evals/datasets/seed_eval_set.json`; audit every pass before trusting it
+6. First real retrieval number for this build — the baseline every later module
+   is measured against
+7. Docs: ADR on harness design, LLD, interview Q&A
 
 ---
 
@@ -152,4 +204,4 @@ clean (27 files). Integration tests assert on real FY2025 figures (`416,161`,
 
 ---
 
-*Last updated: Module 1 complete — ingestion built, inline-XBRL data-loss bug found and fixed, 1,309 chunks baselined. Next: Module 2 (Indexing).*
+*Last updated: Module 2 complete — indexing built with idempotent upserts and verified collection schema; not yet run against live Qdrant. Next: Module 3 (Dense retrieval + eval harness).*
