@@ -37,3 +37,5 @@ Status | Date
 | [0004](0004-stdlib-structured-logging.md) | Standard-library logging with a JSON formatter | Accepted |
 | [0005](0005-incremental-dependencies.md) | Add dependencies only when a module needs them | Accepted |
 | [0006](0006-raw-filings-in-version-control.md) | Track raw filings in git | Accepted |
+| [0007](0007-preserve-inline-xbrl-values.md) | Preserve inline-XBRL values; flatten tables into rows | Accepted |
+| [0008](0008-recursive-chunking-strategy.md) | Recursive character chunking at 1000/200 | Accepted |
