@@ -41,3 +41,5 @@ Status | Date
 | [0008](0008-recursive-chunking-strategy.md) | Recursive character chunking at 1000/200 | Accepted |
 | [0009](0009-deterministic-point-ids.md) | Deterministic point IDs and a single filtered collection | Accepted |
 | [0010](0010-retriever-agnostic-eval-harness.md) | A retriever-agnostic evaluation harness | Accepted |
+| [0011](0011-bm25-sparse-retrieval.md) | BM25 sparse retrieval with a shared tokenizer | Accepted |
+| [0012](0012-rrf-hybrid-fusion.md) | Reciprocal Rank Fusion for hybrid retrieval | Accepted |
