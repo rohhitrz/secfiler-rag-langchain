@@ -18,6 +18,7 @@ dependencies = [
     "langchain-openai>=1.4.1",
     "langchain-qdrant>=1.1.0",
     "qdrant-client>=1.18.0",
+    "rank-bm25>=0.2.2",
 ]
 
 [dependency-groups]
@@ -100,6 +101,12 @@ strict = true
 warn_unreachable = true
 show_error_codes = true
 pretty = true
+
+[[tool.mypy.overrides]]
+# rank-bm25 ships no type stubs and is a single small module; writing stubs for
+# it would cost more than the two call sites are worth.
+module = ["rank_bm25.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Tests stay type-checked for real errors, but are not forced to annotate

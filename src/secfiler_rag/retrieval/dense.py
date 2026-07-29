@@ -13,9 +13,10 @@ model with the same dimensions. Mixing models produces vectors in unrelated
 spaces, and the failure is not an error — it is retrieval that returns
 confident nonsense.
 
-**Filters are translated here, not in the harness.** This module is the only
-place that knows a filter key called `company` maps to the Qdrant payload path
-`metadata.company`. Everything upstream passes filters as an opaque mapping.
+**Filters are translated below the harness, never inside it.** The shared
+vocabulary lives in `retrieval.filters`; this module pushes it down into Qdrant
+as a server-side filter, while sparse retrieval applies the same vocabulary in
+Python. Everything upstream passes filters as an opaque mapping.
 """
 
 from __future__ import annotations
@@ -25,18 +26,12 @@ from typing import Any
 
 from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
-from qdrant_client.http import models as qmodels
 
 from secfiler_rag.core.exceptions import RetrievalError
 from secfiler_rag.core.logging import get_logger
-from secfiler_rag.indexing.collection import METADATA_PAYLOAD_KEY
+from secfiler_rag.retrieval.filters import build_qdrant_filter
 
 log = get_logger(__name__)
-
-# Filter keys this retriever understands, mapped to their payload paths.
-# QdrantVectorStore nests metadata, so the path is prefixed — filtering on the
-# bare field name matches nothing and raises nothing.
-_FILTER_FIELDS = {"company": f"{METADATA_PAYLOAD_KEY}.company"}
 
 
 class DenseRetriever:
@@ -78,7 +73,7 @@ class DenseRetriever:
             raise RetrievalError("Cannot retrieve for an empty query")
 
         k = top_k if top_k is not None else self._default_top_k
-        qdrant_filter = build_filter(filters)
+        qdrant_filter = build_qdrant_filter(filters)
 
         scored = self._store.similarity_search_with_score(query, k=k, filter=qdrant_filter)
 
@@ -111,34 +106,7 @@ class DenseRetriever:
         For LCEL chains, where the filter is known when the chain is built.
         """
         search_kwargs: dict[str, Any] = {"k": top_k if top_k is not None else self._default_top_k}
-        qdrant_filter = build_filter(filters)
+        qdrant_filter = build_qdrant_filter(filters)
         if qdrant_filter is not None:
             search_kwargs["filter"] = qdrant_filter
         return self._store.as_retriever(search_kwargs=search_kwargs)
-
-
-def build_filter(filters: Mapping[str, Any] | None) -> qmodels.Filter | None:
-    """Translate an opaque filter mapping into a Qdrant filter.
-
-    Args:
-        filters: Filter keys and values, or None.
-
-    Returns:
-        A Qdrant `Filter`, or None when there is nothing to constrain.
-
-    Raises:
-        RetrievalError: If a key is not a supported filter field. Unknown keys
-            must not be ignored — a silently dropped filter returns another
-            company's chunks and looks like a retrieval quality problem.
-    """
-    if not filters:
-        return None
-
-    conditions: list[qmodels.Condition] = []
-    for key, value in filters.items():
-        field = _FILTER_FIELDS.get(key)
-        if field is None:
-            raise RetrievalError(f"Unknown filter key {key!r}. Supported: {sorted(_FILTER_FIELDS)}")
-        conditions.append(qmodels.FieldCondition(key=field, match=qmodels.MatchValue(value=value)))
-
-    return qmodels.Filter(must=conditions)

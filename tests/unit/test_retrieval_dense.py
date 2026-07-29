@@ -12,7 +12,8 @@ from qdrant_client.http import models as qmodels
 
 from secfiler_rag.core.exceptions import RetrievalError
 from secfiler_rag.indexing.indexer import build_vector_store, index_documents
-from secfiler_rag.retrieval.dense import DenseRetriever, build_filter
+from secfiler_rag.retrieval.dense import DenseRetriever
+from secfiler_rag.retrieval.filters import build_qdrant_filter
 from tests.conftest import make_settings
 
 VECTOR_SIZE = 32
@@ -113,7 +114,7 @@ def test_langchain_retriever_adapter_works(retriever):
 
 def test_build_filter_uses_the_nested_payload_path():
     """Bare 'company' would match nothing, silently."""
-    qdrant_filter = build_filter({"company": "aapl"})
+    qdrant_filter = build_qdrant_filter({"company": "aapl"})
 
     assert qdrant_filter is not None
     assert isinstance(qdrant_filter.must, list)
@@ -123,5 +124,5 @@ def test_build_filter_uses_the_nested_payload_path():
 
 
 def test_build_filter_returns_none_when_unconstrained():
-    assert build_filter(None) is None
-    assert build_filter({}) is None
+    assert build_qdrant_filter(None) is None
+    assert build_qdrant_filter({}) is None
