@@ -23,8 +23,8 @@
 | 1 | Ingestion — HTML load, clean, chunk → `Document` | ✅ **DONE** |
 | 2 | Indexing — OpenAI embeddings + Qdrant upsert | ✅ **DONE** |
 | 3 | Dense retrieval + company filter + eval harness | ✅ **DONE** |
-| 4 | Sparse (BM25) + hybrid RRF fusion | 🔜 **NEXT** |
-| 5 | Cross-encoder reranking | Not started |
+| 4 | Sparse (BM25) + hybrid RRF fusion | ✅ **DONE** |
+| 5 | Cross-encoder reranking | 🔜 **NEXT** |
 | 6 | Answer generation (cited answers) | Not started |
 | 7 | LangSmith observability + richer evals | Not started |
 | 8 | Agentic RAG (routing, multi-step) | Not started |
@@ -67,6 +67,10 @@
 | Ground truth | Substring, not chunk_id | Survives re-chunking, so before/after chunker changes stay comparable |
 | Metrics | Hit rate **and** MRR, tiers reported separately | A reranker moves MRR while hit rate stays flat |
 | Audit | Every pass records rank + chunk + excerpt | A green number nobody read is not evidence |
+| Tokenizer | One `tokenize()` for **both** BM25 index and query | Asymmetry degrades matching silently, with no error |
+| BM25 index | Single corpus-wide, filtered after scoring | Keeps scores comparable filtered vs unfiltered; per-company IDF parked |
+| Fusion | RRF `Σ 1/(60+rank)`, ties broken on identity key | Rank is scale-free; tie-break makes fusion deterministic + symmetric |
+| Candidate width | Each retriever 10 → fuse 10 → slice last | The answer sat at rank 6; slicing early loses it irrecoverably |
 
 ---
 
@@ -223,22 +227,78 @@ Module 5's reranker has to beat.
 
 ---
 
+## What's built (Module 4 — Sparse + hybrid retrieval)
+
+`retrieval/` gains `filters.py` (shared vocabulary), `sparse.py` (BM25),
+`fusion.py` (RRF), `hybrid.py`. Eval CLI gains
+`--strategy dense sparse hybrid` so all three are scored against **one** index
+build and **one** harness.
+
+### 📊 MEASURED — same index, same harness, same dataset
+
+| Strategy | k=1 | k=3 | k=5 | k=10 |
+|---|---|---|---|---|
+| dense | 75.0% / 0.750 | 87.5% / 0.812 | 87.5% / 0.812 | 100% / 0.833 |
+| sparse | 50.0% / 0.500 | 75.0% / 0.604 | 87.5% / 0.629 | 100% / 0.647 |
+| hybrid | 75.0% / 0.750 | 87.5% / 0.812 | 87.5% / 0.812 | 100% / 0.833 |
+
+**Hybrid did not beat dense.** Reported as-is. Verified it is not a bug:
+`rrf_ranks` shows both retrievers contributing, and fused orderings genuinely
+differ (dense `[210, 213, 209, 211, …]` vs hybrid `[213, 211, 210, 209, …]`).
+The aggregate tie is a coincidence of an 8-item set.
+
+**Why fusion could not fix the one failure — the useful part.** For
+`"derivative instruments"`, the answer chunk 127 sits at rank 6 in dense and
+rank 5 in sparse. Both retrievers agree it is mediocre, and RRF *rewards*
+agreement. No rank-recombination scheme promotes a document every input ranked
+mid-pack.
+
+→ That is the measured case for a **cross-encoder**: something that reads query
+and document together rather than recombining independent opinions. Module 5
+now has a specific target, not a hope.
+
+### Bug found by a test
+
+RRF ties resolved by dict insertion order, so `fuse([dense, sparse])` and
+`fuse([sparse, dense])` could return different rankings for identical input.
+Ties are common by construction (same rank in two retrievers → identical
+score). Fixed by breaking ties on the identity key. Non-determinism would have
+made two eval runs incomparable — which defeats the harness's whole purpose.
+
+**Verification:** 183 unit tests · ruff clean · mypy strict clean (52 files).
+
+**Docs:** ADR 0011 (BM25), ADR 0012 (RRF + the negative result), LLD Module 4,
+`interview/04-hybrid-retrieval.md`.
+
+**Carried-forward flags:**
+- In-memory BM25 rebuilt at process start — **first thing that breaks at scale**; fix is Qdrant native sparse vectors, deliberately deferred so adoption and relocation stay separately measurable
+- `k=60` untuned; with 8 items, tuning would fit noise
+- Corpus-wide IDF rather than per-company — no evidence yet it matters
+- `$416,161` tokenises to `416` + `161`, so BM25 cannot match a figure as a unit
+- No query expansion / multi-query — another untested lever on vocabulary mismatch
+
+---
+
 ## What's next
 
-**Module 4 — Sparse retrieval + hybrid fusion**
+**Module 5 — Cross-encoder reranking**
 
-1. Add `rank-bm25`; `retrieval/sparse.py` with a single shared tokenizer used
-   for **both** indexing and querying (symmetry is mandatory)
-2. Measure BM25 alone against the same dataset — the honest vectorless baseline
-3. `retrieval/fusion.py` — RRF, `score = Σ 1/(k + rank)`, k=60. Rank-based, so
-   the BM25 (~0–13) vs cosine (~0–1) scale mismatch never arises
-4. Identity key for fusion is `(company, chunk_id)` — `chunk_id` alone collides
-5. Each retriever contributes top-10 → RRF fuses to 10 → later sliced to 3
-   **after** reranking, never before
-6. Every stage that reorders must overwrite `metadata["score"]`
-7. Measure hybrid vs dense vs sparse on the same harness; audit before believing
-8. Decide: in-memory BM25 vs Qdrant native sparse vectors (a real trade-off now
-   that the corpus is indexed)
+The measured target: chunk 127 sits at rank 6 (dense) / rank 5 (sparse) for
+`"derivative instruments"`. A reranker that reads query and document *together*
+should lift it into the top 3. If it does not, that is a finding too.
+
+1. Add the reranker (Cohere `rerank-v3.5` via `ClientV2`, per the carried-over
+   decision — free tier covers this; `bge-reranker-large` is the self-hosted
+   alternative)
+2. `retrieval/rerank.py` — wraps any retriever, reorders its candidates
+3. **Index-alignment discipline:** map the reranker's returned `index` back
+   into the original candidate list. Never assume response order equals input
+   order, even when it happens to be sorted
+4. Overwrite `metadata["score"]` with the rerank score (harness prints it)
+5. Wire the full funnel: retrievers top-10 → RRF top-10 → rerank → top-3
+6. Measure rerank-over-dense **and** rerank-over-hybrid — with hybrid flat, the
+   comparison shows whether fusion adds anything once reranking exists
+7. Audit: confirm chunk 127 actually moved, do not trust the aggregate
 
 **Also outstanding:** run against live Qdrant once Docker is available —
 `docker compose up -d && uv run python scripts/index_filings.py` then
@@ -257,4 +317,4 @@ Module 5's reranker has to beat.
 
 ---
 
-*Last updated: Module 3 complete — first measured baseline: 87.5% hit rate @ k=5, 100% @ k=10, MRR 0.833. Recall solved, ranking is the gap. Next: Module 4 (Hybrid search).*
+*Last updated: Module 4 complete — BM25 + RRF built and measured. Hybrid did not beat dense (reported honestly, verified not a bug); both retrievers agree the failing chunk is mediocre, which is precisely the case for a cross-encoder. Next: Module 5 (Reranking).*

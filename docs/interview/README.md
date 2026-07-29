@@ -17,7 +17,8 @@ fresh. Each file follows the same shape:
 | [01 — Ingestion](01-ingestion.md) | HTML cleaning, inline XBRL, tables, chunking |
 | [02 — Indexing](02-indexing.md) | Point identity, collection lifecycle, payload filters, testing without Docker |
 | [03 — Retrieval & evaluation](03-retrieval-and-evaluation.md) | Dense search, the eval harness, diagnosing a real miss |
-| _04 — Hybrid & reranking_ | (with Modules 4–5) |
+| [04 — Hybrid retrieval](04-hybrid-retrieval.md) | BM25, RRF, and a negative result worth defending |
+| _05 — Reranking_ | (with Module 5) |
 | _05 — Generation_ | (with Module 6) |
 
 ## How to use these

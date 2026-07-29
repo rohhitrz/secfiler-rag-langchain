@@ -311,7 +311,96 @@ at the top, not recall** — a reranker's job, now measured rather than assumed.
 
 ---
 
-## Modules 4+ — Hybrid / rerank / generation
+## Module 4 — Sparse + hybrid retrieval (implemented)
+
+```text
+filters.py  FILTER_FIELDS: dict[str, str]        # key -> Qdrant payload path
+            validate_filters(filters) -> None
+            build_qdrant_filter(filters) -> Filter | None   # dense, server-side
+            matches(metadata, filters) -> bool              # sparse, in-Python
+
+sparse.py   tokenize(text) -> list[str]
+            SparseRetriever(documents, *, default_top_k=5)
+              .search(query, filters=None, top_k=None) -> list[Document]
+
+fusion.py   reciprocal_rank_fusion(result_lists, *, k=60, top_k=10)
+                -> list[Document]
+
+hybrid.py   Retriever  (Protocol: .search(query, filters, top_k))
+            HybridRetriever(retrievers, *, candidate_k=10, rrf_k=60,
+                            default_top_k=5)
+```
+
+### Shared filter vocabulary
+
+Dense pushes filters into Qdrant; sparse applies them in Python. Same meaning,
+two mechanisms — so the vocabulary lives in `filters.py` and each strategy
+translates. Without that, one strategy could honour a key the other silently
+ignored, and a hybrid query would return one company's chunks from one side and
+everyone's from the other.
+
+Note the asymmetry: Qdrant filters use the **prefixed** path
+(`metadata.company`) because payloads are nested; in-memory `Document`s hold
+metadata **flat**, so `matches()` compares the bare key.
+
+### Tokenizer
+
+`re.findall(r"[a-z0-9]+", text.lower())` — one function, used for **both**
+corpus indexing and queries. Asymmetry degrades matching silently. No stemming
+or stop words: IDF already discounts ubiquitous terms.
+
+### RRF
+
+```
+score(doc) = Σ over retrievers  1 / (k + rank),   k = 60
+```
+
+- Identity: `(company, chunk_id)`; falls back to page content when metadata is
+  absent, so fusion still de-duplicates
+- Ties break on the identity key, so fusion is deterministic and symmetric in
+  retriever order
+- `score` is overwritten with the RRF score; `rrf_ranks` records the
+  per-retriever ranks that produced it
+
+### The funnel
+
+```
+dense  top-10 ┐
+              ├── RRF ──► top-10 fused ──► (Module 5: rerank) ──► top-3
+sparse top-10 ┘
+```
+
+`candidate_k` is always at least the requested `top_k`. **Never slice to the
+final `top_k` before fusion or reranking** — a chunk cut early cannot be
+recovered downstream.
+
+### Measured comparison (same index, same harness, same dataset)
+
+| Strategy | k=1 | k=3 | k=5 | k=10 |
+|---|---|---|---|---|
+| dense | 75.0% / 0.750 | 87.5% / 0.812 | 87.5% / 0.812 | 100% / 0.833 |
+| sparse | 50.0% / 0.500 | 75.0% / 0.604 | 87.5% / 0.629 | 100% / 0.647 |
+| hybrid | 75.0% / 0.750 | 87.5% / 0.812 | 87.5% / 0.812 | 100% / 0.833 |
+
+Hybrid did **not** improve on dense. Verified not a bug (see
+[ADR 0012](adr/0012-rrf-hybrid-fusion.md)): fusion reorders genuinely, but on
+the one failing query both retrievers rank the answer mid-pack (5 and 6) and
+RRF rewards agreement. That is the measured case for a cross-encoder.
+
+### Failure modes
+
+| Condition | Result |
+|---|---|
+| Empty BM25 corpus | `RetrievalError` |
+| Empty query | `RetrievalError` |
+| Unknown filter key (any strategy) | `RetrievalError` |
+| Query sharing no term with the corpus | Empty list |
+| RRF `k <= 0` | `RetrievalError` |
+| One retriever returns nothing | Fusion proceeds with the rest |
+
+---
+
+## Modules 5+ — Rerank / generation
 
 Contracts filled when those modules land. Standing rules:
 

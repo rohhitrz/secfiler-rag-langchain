@@ -8,7 +8,7 @@ Built with **LangChain**, **Qdrant**, **OpenAI embeddings**, and **LangSmith** �
 |---|---|
 | **Corpus** | FY2025 10-K HTML for AAPL, MSFT, TSLA |
 | **Python** | 3.12+ · packaged with `uv` |
-| **Status** | Dense retrieval measured — 87.5% hit rate @ k=5, 100% @ k=10 |
+| **Status** | Hybrid retrieval measured — dense 87.5% @ k=5; reranking next |
 
 ---
 
@@ -86,7 +86,7 @@ uv run python scripts/index_filings.py
 ### Measure retrieval
 
 ```bash
-uv run python scripts/evaluate_retrieval.py --in-memory --top-k 1 3 5 10 --audit
+uv run python scripts/evaluate_retrieval.py --in-memory --strategy dense sparse hybrid --top-k 1 3 5 10
 ```
 
 ### Tests
@@ -117,7 +117,7 @@ src/secfiler_rag/
   core/                    # logging, exceptions
   ingestion/               # HTML → Documents          ✅
   indexing/                # embed + Qdrant            ✅
-  retrieval/               # search strategies         ✅ dense
+  retrieval/               # search strategies         ✅ dense+sparse+hybrid
   generation/              # cited answers             (Module 6)
   evaluation/              # harness + metrics         ✅
   observability/           # LangSmith                 (Module 7)
@@ -163,8 +163,9 @@ tests/unit|integration/
 2. ✅ Module 1 — ingestion (HTML → cleaned text → 1,309 chunks)
 3. ✅ Module 2 — indexing (OpenAI embeddings + Qdrant, idempotent re-index)
 4. ✅ Module 3 — dense retrieval + eval harness (first measured baseline)
-5. 🔜 Module 4 — hybrid search (BM25 + RRF)
-6. Rerank → generation → serving
+5. ✅ Module 4 — hybrid search (BM25 + RRF) — measured, no gain yet, and that is documented
+6. 🔜 Module 5 — cross-encoder reranking
+7. Generation → serving
 
 Details in [`PROGRESS.md`](PROGRESS.md).
 
