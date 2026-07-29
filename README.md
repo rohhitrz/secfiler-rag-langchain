@@ -8,7 +8,7 @@ Built with **LangChain**, **Qdrant**, **OpenAI embeddings**, and **LangSmith** �
 |---|---|
 | **Corpus** | FY2025 10-K HTML for AAPL, MSFT, TSLA |
 | **Python** | 3.12+ · packaged with `uv` |
-| **Status** | Foundation complete · ingestion next |
+| **Status** | Ingestion complete (1,309 chunks) · indexing next |
 
 ---
 
@@ -99,7 +99,7 @@ scripts/                   # thin CLIs (later)
 src/secfiler_rag/
   config/                  # pydantic-settings
   core/                    # logging, exceptions
-  ingestion/               # HTML → Documents          (Module 1)
+  ingestion/               # HTML → Documents          ✅
   indexing/                # embed + Qdrant            (Module 2)
   retrieval/               # search strategies         (Modules 3–5)
   generation/              # cited answers             (Module 6)
@@ -144,8 +144,9 @@ tests/unit|integration/
 ## Roadmap (short)
 
 1. ✅ Module 0 — clean repo, structure, foundation docs
-2. 🔜 Module 1 — ingestion
-3. Indexing → dense retrieval → hybrid → rerank → generation → serving
+2. ✅ Module 1 — ingestion (HTML → cleaned text → 1,309 chunks)
+3. 🔜 Module 2 — indexing (OpenAI embeddings + Qdrant)
+4. Dense retrieval → hybrid → rerank → generation → serving
 
 Details in [`PROGRESS.md`](PROGRESS.md).
 

@@ -14,7 +14,7 @@ fresh. Each file follows the same shape:
 | Doc | Covers |
 |---|---|
 | [00 — Foundation](00-foundation.md) | Repo structure, config, logging, testing, dependency policy |
-| _01 — Ingestion_ | (with Module 1) |
+| [01 — Ingestion](01-ingestion.md) | HTML cleaning, inline XBRL, tables, chunking |
 | _02 — Indexing_ | (with Module 2) |
 | _03 — Retrieval & evaluation_ | (with Module 3) |
 | _04 — Hybrid & reranking_ | (with Modules 4–5) |

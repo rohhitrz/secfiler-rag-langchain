@@ -20,8 +20,8 @@
 | # | Module | Status |
 |---|---|---|
 | 0 | Repo cleanup, structure, foundational docs | ✅ **DONE** |
-| 1 | Ingestion — HTML load, clean, chunk → `Document` | 🔜 **NEXT** |
-| 2 | Indexing — OpenAI embeddings + Qdrant upsert | Not started |
+| 1 | Ingestion — HTML load, clean, chunk → `Document` | ✅ **DONE** |
+| 2 | Indexing — OpenAI embeddings + Qdrant upsert | 🔜 **NEXT** |
 | 3 | Dense retrieval + company filter + eval harness | Not started |
 | 4 | Sparse (BM25) + hybrid RRF fusion | Not started |
 | 5 | Cross-encoder reranking | Not started |
@@ -52,6 +52,12 @@
 | Fusion | RRF (k=60), not score blending | Sidesteps BM25 vs cosine scale mismatch |
 | Eval harness | Retriever-agnostic | Honest A/B; no domain knowledge in harness |
 | Dependencies | Add only when the module lands | Keeps the graph honest |
+| Inline XBRL | **`unwrap()`, never `decompose()`** | The tags wrap the visible figures; decomposing deleted 53% of digits |
+| Tables | One line per `<tr>`, cells joined ` \| ` | Keeps a row's label adjacent to its numbers |
+| Whitespace | Collapse within lines, keep newlines | A recursive splitter needs boundaries to split on |
+| Chunking | `RecursiveCharacterTextSplitter`, 1000/200 | Structure-first; baseline carried over pending eval numbers |
+| Chunk identity | `(company, chunk_id)` pair | IDs restart per filing |
+| Filenames | `{company}-{year}.htm`, lowercase, enforced | Uppercase would silently never match a payload filter |
 
 ---
 
@@ -81,16 +87,57 @@ pushed for Module 0 yet.
 
 ---
 
+## What's built (Module 1 — Ingestion)
+
+`ingestion/` = `loader` + `cleaner` + `splitter` + `pipeline`. Only `pipeline`
+touches both the filesystem and config, so the middle two stay pure functions.
+
+**The bug that mattered.** The previous build stripped inline XBRL with
+`decompose()`, which removes a tag *and its contents* — but `ix:` tags wrap the
+visible values. Measured on Apple FY2025: 251 spans of real content deleted,
+including `Apple Inc.`, `10-K`, the fiscal year end, and **53% of every digit**.
+This was the real cause of the `Products $ $ $` symptom, misfiled as a table
+problem for four modules. Fix: `unwrap()`, keeping only the four machine-only
+containers on `decompose()`.
+
+**Corpus baseline (1000/200):**
+
+| Company | Raw | Clean text | Chunks |
+|---|---|---|---|
+| aapl | 1.5 MB | 209,393 | 292 |
+| msft | 8.2 MB | 317,163 | 441 |
+| tsla | 2.4 MB | 399,145 | 576 |
+| **Total** | **12.1 MB** | | **1,309** |
+
+Previous build: 768 chunks. The +70% is recovered content, not smaller chunks.
+
+**Verification:** 60 unit + 4 integration tests pass · ruff clean · mypy strict
+clean (27 files). Integration tests assert on real FY2025 figures (`416,161`,
+`Apple Inc.`, `10-K`) so this regression cannot return silently.
+
+**Docs:** ADR 0007 (inline XBRL + tables), ADR 0008 (chunking), LLD Module 1,
+`interview/01-ingestion.md`.
+
+**Carried-forward flags:**
+- Character-based chunking — token-based is more correct; measure before raising size
+- `ix:nonNumeric` fragments (`false`, `P1Y`) still leak short tokens
+- No section awareness (Item 1A / Item 7 would be good filter metadata)
+- No near-duplicate handling for repeated boilerplate
+
+---
+
 ## What's next
 
-**Module 1 — Ingestion**
+**Module 2 — Indexing**
 
-1. Load HTML from `data/raw/`
-2. Strip scripts/styles/inline-XBRL with BeautifulSoup
-3. Chunk with overlap; attach metadata (`company`, `chunk_id`, `source`)
-4. Emit `langchain_core.documents.Document`
-5. Unit tests on tiny HTML fixtures (not full 8MB MSFT in unit tests)
-6. Docs: LLD for ingestion, failure modes (tables / mangled `$`), interview Q&A
+1. Add `langchain-openai` + `langchain-qdrant` + `qdrant-client` (deps land with the module)
+2. Add Qdrant + embedding settings (`QDRANT_URL`, collection name, model, batch size)
+3. Embed chunks with `text-embedding-3-small` (1536-d), batched
+4. Collection lifecycle: create/verify, cosine distance, dimension check
+5. Deterministic point IDs — `uuid5(NAMESPACE_DNS, f"{company}-{chunk_id}")` — so re-indexing overwrites instead of duplicating
+6. Payload index on `company` so filtering stays cheap
+7. Integration test against live Qdrant; unit tests with a fake embedder
+8. Docs: ADR for point-ID scheme + single-collection choice, LLD, interview Q&A
 
 ---
 
@@ -105,4 +152,4 @@ pushed for Module 0 yet.
 
 ---
 
-*Last updated: Module 0 complete — repo cleaned, structure locked, foundational docs written. Next: Module 1 (Ingestion).*
+*Last updated: Module 1 complete — ingestion built, inline-XBRL data-loss bug found and fixed, 1,309 chunks baselined. Next: Module 2 (Indexing).*
