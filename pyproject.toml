@@ -1,0 +1,103 @@
+[project]
+name = "secfiler-rag"
+version = "0.1.0"
+description = "Production-grade Advanced RAG over SEC 10-K filings, built on LangChain + Qdrant."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "rohhitrz", email = "rohhit.rz@gmail.com" }]
+
+# Dependency policy: a package earns its place when the module that needs it
+# lands. See docs/adr/0005-incremental-dependencies.md.
+dependencies = [
+    "langchain-core>=0.3.0",
+    "langchain-text-splitters>=0.3.0",
+    "langsmith>=0.3.0",
+    "beautifulsoup4>=4.13.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "types-beautifulsoup4>=4.12.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "secfiler_rag"
+module-root = "src"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-ra",                    # report reasons for all non-passing tests
+    "--strict-markers",       # an unknown @pytest.mark.* is an error, not a typo
+    "--import-mode=importlib",
+]
+markers = [
+    "integration: needs live external services (Qdrant, OpenAI). Deselect with -m 'not integration'.",
+]
+
+# ---------------------------------------------------------------------------
+# ruff — linter + formatter (replaces black + isort + flake8)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort (import ordering)
+    "N",        # pep8-naming
+    "UP",       # pyupgrade — keep syntax modern
+    "B",        # flake8-bugbear — likely bugs
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "ARG",      # unused arguments
+    "PTH",      # prefer pathlib over os.path
+    "RUF",      # ruff-specific
+    "D",        # pydocstyle — every public module/function documented
+    "ANN",      # flake8-annotations — type hints are not optional here
+]
+ignore = [
+    "D107",     # __init__ docstring — covered by the class docstring
+    "D203",     # incompatible with D211 (blank line before class docstring)
+    "D213",     # incompatible with D212 (multi-line summary position)
+    "ANN401",   # allow typing.Any where genuinely dynamic
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests document themselves by name (D), need no annotations (ANN), and
+# request fixtures they never reference by value (ARG).
+"tests/**" = ["D", "ANN", "ARG"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# ---------------------------------------------------------------------------
+# mypy — static type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

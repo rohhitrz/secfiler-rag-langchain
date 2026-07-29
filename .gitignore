@@ -1,0 +1,46 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# macOS
+.DS_Store
+
+# IDE / editors
+.vscode/
+
+# Testing / coverage
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Type-checker / linter cache
+.mypy_cache/
+.ruff_cache/
+
+# Local / generated data.
+# Raw filings ARE tracked (see docs/adr/0006); everything derived from them is not.
+data/*
+!data/raw/
+!data/raw/**
+qdrant_storage/
+
+# Logs
+logs/
+*.log
+
+# Scratch / one-off experiments
+scratch_*.py
+*_clean.txt
