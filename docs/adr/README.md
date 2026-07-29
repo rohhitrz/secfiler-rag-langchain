@@ -39,3 +39,4 @@ Status | Date
 | [0006](0006-raw-filings-in-version-control.md) | Track raw filings in git | Accepted |
 | [0007](0007-preserve-inline-xbrl-values.md) | Preserve inline-XBRL values; flatten tables into rows | Accepted |
 | [0008](0008-recursive-chunking-strategy.md) | Recursive character chunking at 1000/200 | Accepted |
+| [0009](0009-deterministic-point-ids.md) | Deterministic point IDs and a single filtered collection | Accepted |
