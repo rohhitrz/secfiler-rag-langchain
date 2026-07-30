@@ -112,6 +112,28 @@ class Settings(BaseSettings):
         "blast radius when one request fails.",
     )
 
+    # --- Reranking ---------------------------------------------------------
+    cohere_api_key: SecretStr | None = Field(
+        default=None,
+        description="Cohere key for cross-encoder reranking. Optional — reranking "
+        "improves ordering but the system answers without it.",
+    )
+    rerank_model: str = Field(
+        default="rerank-v3.5",
+        description="Cohere rerank model.",
+    )
+    rerank_candidate_k: int = Field(
+        default=10,
+        gt=0,
+        description="Candidates handed to the reranker. Wider costs more per query; "
+        "a chunk not in this pool can never be recovered.",
+    )
+    rerank_top_k: int = Field(
+        default=3,
+        gt=0,
+        description="Chunks kept after reranking, i.e. what reaches the LLM.",
+    )
+
     # --- Vector store ------------------------------------------------------
     qdrant_url: str = Field(
         default="http://localhost:6333",
