@@ -38,7 +38,14 @@ from secfiler_rag.indexing import (
     index_documents,
 )
 from secfiler_rag.ingestion import ingest_all
-from secfiler_rag.retrieval import DenseRetriever, HybridRetriever, SparseRetriever
+from secfiler_rag.retrieval import (
+    DenseRetriever,
+    HybridRetriever,
+    RerankingRetriever,
+    Retriever,
+    SparseRetriever,
+    build_rerank_client,
+)
 
 log = get_logger(__name__)
 
@@ -65,7 +72,7 @@ def main() -> int:
     parser.add_argument(
         "--strategy",
         nargs="+",
-        choices=["dense", "sparse", "hybrid"],
+        choices=["dense", "sparse", "hybrid", "dense+rerank", "hybrid+rerank"],
         default=["dense"],
         help="Strategies to score. All share one harness and one index build, "
         "so the numbers are directly comparable.",
@@ -129,20 +136,52 @@ def _build_strategies(
     wanted = set(args.strategy)
     built: dict[str, Any] = {}
 
-    dense = DenseRetriever(store) if wanted & {"dense", "hybrid"} else None
-    sparse = None
-    if wanted & {"sparse", "hybrid"}:
-        # BM25 needs the chunk texts in memory, not the vector store.
-        sparse = SparseRetriever(documents if documents is not None else ingest_all())
+    needs_dense = any(name.startswith(("dense", "hybrid")) for name in wanted)
+    needs_sparse = any(name.startswith(("sparse", "hybrid")) for name in wanted)
+    needs_rerank = any(name.endswith("+rerank") for name in wanted)
+
+    dense = DenseRetriever(store) if needs_dense else None
+    # BM25 needs the chunk texts in memory, not the vector store.
+    sparse = (
+        SparseRetriever(documents if documents is not None else ingest_all())
+        if needs_sparse
+        else None
+    )
+    rerank_client = build_rerank_client() if needs_rerank else None
+    settings = get_settings()
+
+    def hybrid() -> HybridRetriever:
+        assert dense is not None and sparse is not None  # built above
+        return HybridRetriever([dense, sparse], candidate_k=args.candidate_k)
 
     for name in args.strategy:
-        if name == "dense":
-            built["dense"] = dense
-        elif name == "sparse":
-            built["sparse"] = sparse
+        kind = name.removesuffix("+rerank")
+        base: Retriever
+        if kind == "dense":
+            assert dense is not None  # built above
+            base = dense
+        elif kind == "sparse":
+            assert sparse is not None  # built above
+            base = sparse
         else:
-            assert dense is not None and sparse is not None  # both built above
-            built["hybrid"] = HybridRetriever([dense, sparse], candidate_k=args.candidate_k)
+            base = hybrid()
+
+        if name.endswith("+rerank"):
+            assert rerank_client is not None  # built above
+            built[name] = RerankingRetriever(
+                base,
+                rerank_client,
+                model=settings.rerank_model,
+                candidate_k=args.candidate_k,
+                # A service should degrade when the reranker is unavailable.
+                # An evaluation must not: Cohere's trial tier allows ~10 calls
+                # a minute, an eval issues dozens, and failing open would
+                # silently score the un-reranked fallback as if it were the
+                # reranker. Measurement fails loudly instead.
+                fail_open=False,
+            )
+        else:
+            built[name] = base
     return built
 
 
