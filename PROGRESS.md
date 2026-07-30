@@ -24,8 +24,8 @@
 | 2 | Indexing — OpenAI embeddings + Qdrant upsert | ✅ **DONE** |
 | 3 | Dense retrieval + company filter + eval harness | ✅ **DONE** |
 | 4 | Sparse (BM25) + hybrid RRF fusion | ✅ **DONE** |
-| 5 | Cross-encoder reranking | 🔜 **NEXT** |
-| 6 | Answer generation (cited answers) | Not started |
+| 5 | Cross-encoder reranking | ✅ **DONE** |
+| 6 | Answer generation (cited answers) | 🔜 **NEXT** |
 | 7 | LangSmith observability + richer evals | Not started |
 | 8 | Agentic RAG (routing, multi-step) | Not started |
 | 9 | FastAPI serving layer | Not started |
@@ -71,6 +71,10 @@
 | BM25 index | Single corpus-wide, filtered after scoring | Keeps scores comparable filtered vs unfiltered; per-company IDF parked |
 | Fusion | RRF `Σ 1/(60+rank)`, ties broken on identity key | Rank is scale-free; tie-break makes fusion deterministic + symmetric |
 | Candidate width | Each retriever 10 → fuse 10 → slice last | The answer sat at rank 6; slicing early loses it irrecoverably |
+| Reranker | Cohere `rerank-v3.5` behind a `RerankClient` Protocol | Swappable; tests inject a fake, no provider import in the retriever |
+| Index alignment | Map `result.index` back into the sent list | Pairing by response order silently mispairs docs and scores |
+| Failure policy | `fail_open=True` in a service, **`False` when measuring** | You cannot measure a component that is quietly not running |
+| Rate limits | Bounded retry + exponential backoff (5 × 2s base) | Cohere trial tier is ~10 req/min; an eval issues dozens |
 
 ---
 
@@ -279,26 +283,86 @@ made two eval runs incomparable — which defeats the harness's whole purpose.
 
 ---
 
+## What's built (Module 5 — Cross-encoder reranking)
+
+`retrieval/rerank.py` — `RerankingRetriever` wraps **any** retriever, so the
+harness can score rerank-over-dense against rerank-over-hybrid.
+
+### 📊 MEASURED — same index, same harness, top_k=3
+
+| Strategy | Hit rate | MRR | Median latency |
+|---|---|---|---|
+| dense | 87.5% | 0.812 | 464 ms |
+| hybrid | 87.5% | 0.812 | 497 ms |
+| **dense+rerank** | **100.0%** | **0.917** | 886 ms |
+| **hybrid+rerank** | **100.0%** | **0.917** | — |
+
+**The Module 4 prediction held.** Audited, not assumed: chunk 127 moved from
+rank 6 → **rank 3**, excerpt confirms the exact expected phrase. Tier 1 went
+80% → 100%.
+
+Bonus found in the audit: *"what was Apple's total revenue this year?"* now
+matches **chunk 178** — the real consolidated statement of operations
+(`Products | $307,003 | $294,866 | $298,085`) — instead of chunk 201. Those
+figures only exist at all because of the Module 1 inline-XBRL fix.
+
+**`dense+rerank` == `hybrid+rerank`.** Once reranking exists, fusion adds
+nothing on this dataset. BM25 is costing a second retriever per query for zero
+measured gain. Kept (8 items cannot support "never"), but **the honest
+recommendation today is dense + rerank**.
+
+### 🐛 The bug worth more than the feature
+
+The first rerank run showed **zero improvement** — because the reranker had
+never run. Cohere's trial tier allows ~10 req/min, an eval issues dozens, and
+`fail_open=True` did its job: logged a warning, returned un-reranked
+candidates. The harness scored the fallback and reported it as the reranker's
+number. The run completed; the numbers looked plausible.
+
+**Principle: graceful degradation and honest measurement are in direct
+conflict.** In a service, failing open is right. In an evaluation it is a trap.
+The same component needs opposite policies, so `fail_open` is a constructor
+argument and the eval CLI passes `False`.
+
+Also fixed: provider exceptions now wrap in `RetrievalError`, so catching
+`SecfilerRagError` genuinely catches everything this package raises — a raw
+`cohere.TooManyRequestsError` escaping `search()` broke that contract.
+
+**Verification:** 206 unit tests · ruff clean · mypy strict clean (54 files).
+
+**Docs:** ADR 0013, LLD Module 5, `interview/05-reranking.md`.
+
+**Carried-forward flags:**
+- 8 eval items — 100% here is a smoke test passing, not a solved problem
+- Hybrid's value is unproven post-reranking and still in the code
+- No caching of query embeddings or rerank calls; both are deterministic
+- Rate limits make a full eval sweep take minutes of backoff
+- Still retrieval-only — nothing measures whether the *answer* is faithful
+
+---
+
 ## What's next
 
-**Module 5 — Cross-encoder reranking**
+**Module 6 — Answer generation (the "G" in RAG)**
 
-The measured target: chunk 127 sits at rank 6 (dense) / rank 5 (sparse) for
-`"derivative instruments"`. A reranker that reads query and document *together*
-should lift it into the top 3. If it does not, that is a finding too.
+Retrieval is done: 3 precise chunks, 100% hit rate. Now turn them into a cited
+answer.
 
-1. Add the reranker (Cohere `rerank-v3.5` via `ClientV2`, per the carried-over
-   decision — free tier covers this; `bge-reranker-large` is the self-hosted
-   alternative)
-2. `retrieval/rerank.py` — wraps any retriever, reorders its candidates
-3. **Index-alignment discipline:** map the reranker's returned `index` back
-   into the original candidate list. Never assume response order equals input
-   order, even when it happens to be sorted
-4. Overwrite `metadata["score"]` with the rerank score (harness prints it)
-5. Wire the full funnel: retrievers top-10 → RRF top-10 → rerank → top-3
-6. Measure rerank-over-dense **and** rerank-over-hybrid — with hybrid flat, the
-   comparison shows whether fusion adds anything once reranking exists
-7. Audit: confirm chunk 127 actually moved, do not trust the aggregate
+1. `generation/prompts.py` — grounding instruction, numbered context blocks so
+   the model can cite them
+2. `generation/chain.py` — LCEL: retriever → context assembly → LLM → parsed
+   answer + citations
+3. **Refusal path is mandatory.** An empty or weak retrieval must never reach
+   the model with an instruction to answer anyway — "not in these filings" is a
+   correct answer and the main guardrail against invention
+4. Citations tied to `(company, chunk_id)` so every claim is traceable
+5. Token budgeting — count, do not hope
+6. Print the fully rendered prompt at least once; what you think you sent and
+   what the template produced differ more often than anyone admits
+7. Faithfulness evaluation (LLM-as-judge) — the harness currently measures
+   retrieval only, and generation needs its own metric
+8. The mangled-table problem finally becomes visible here: retrieval can hide a
+   missing figure, generation cannot
 
 **Also outstanding:** run against live Qdrant once Docker is available —
 `docker compose up -d && uv run python scripts/index_filings.py` then
@@ -317,4 +381,4 @@ should lift it into the top 3. If it does not, that is a finding too.
 
 ---
 
-*Last updated: Module 4 complete — BM25 + RRF built and measured. Hybrid did not beat dense (reported honestly, verified not a bug); both retrievers agree the failing chunk is mediocre, which is precisely the case for a cross-encoder. Next: Module 5 (Reranking).*
+*Last updated: Module 5 complete — reranking took hit rate 87.5% → 100% and MRR 0.812 → 0.917; the Module 4 prediction held and was audited. Found that fail-open silently corrupted the first measurement. Retrieval is done. Next: Module 6 (Answer generation).*

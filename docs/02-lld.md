@@ -400,7 +400,73 @@ RRF rewards agreement. That is the measured case for a cross-encoder.
 
 ---
 
-## Modules 5+ — Rerank / generation
+## Module 5 — Cross-encoder reranking (implemented)
+
+```text
+rerank.py  RerankResult / RerankResponse / RerankClient   (Protocols)
+           RerankingRetriever(base, client, *, model="rerank-v3.5",
+                              candidate_k=10, default_top_k=3,
+                              fail_open=True, max_retries=5,
+                              backoff_seconds=2.0, sleep=time.sleep)
+             .search(query, filters=None, top_k=None) -> list[Document]
+           build_rerank_client(settings=None) -> RerankClient
+```
+
+### Index alignment (the discipline)
+
+Scores map back through `result.index` — a position into the list **sent** —
+never through the result's position in the response. Cohere returns results
+sorted by relevance, but relying on that would silently mispair documents and
+scores if it changed, and the output would still look like a plausible ranking.
+Enforced by a test whose fake returns results in reverse-score order.
+
+### Metadata added
+
+| Key | Meaning |
+|---|---|
+| `score` | Cross-encoder relevance, overwriting the retriever's score |
+| `rank_before_rerank` | 1-based position before reranking, for auditing |
+
+### Failure policy — opposite in the two contexts
+
+| Context | `fail_open` | Why |
+|---|---|---|
+| Service | `True` | Reranking is an enhancement; failing a query over it is worse than a weaker ordering |
+| Evaluation | **`False`** | A silently absent reranker gets *measured as if it ran* |
+
+Provider exceptions are wrapped in `RetrievalError`, so catching
+`SecfilerRagError` genuinely covers every failure this package raises.
+
+Retryable failures (rate limits, timeouts, 503) get bounded retry with
+exponential backoff — 5 retries at a 2 s base is ~62 s cumulative, enough to
+clear a ten-per-minute trial limit.
+
+### The full funnel
+
+```
+1,309 chunks
+   ├─ dense  top-10 ┐
+   │                ├─ RRF (k=60) → 10 → cross-encoder → top-3 → LLM
+   └─ sparse top-10 ┘
+```
+
+### Measured (same index, same harness, top_k=3)
+
+| Strategy | Hit rate | MRR | Median latency |
+|---|---|---|---|
+| dense | 87.5% | 0.812 | 464 ms |
+| hybrid | 87.5% | 0.812 | 497 ms |
+| **dense+rerank** | **100.0%** | **0.917** | 886 ms |
+| **hybrid+rerank** | **100.0%** | **0.917** | — |
+
+Audited, not assumed: chunk 127 moved rank 6 → **rank 3**. Tier 1 80% → 100%.
+
+`dense+rerank` equals `hybrid+rerank`, so **fusion adds nothing once reranking
+exists** on this dataset. See [ADR 0013](adr/0013-cross-encoder-reranking.md).
+
+---
+
+## Modules 6+ — Generation
 
 Contracts filled when those modules land. Standing rules:
 

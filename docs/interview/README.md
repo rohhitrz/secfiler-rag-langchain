@@ -18,8 +18,8 @@ fresh. Each file follows the same shape:
 | [02 — Indexing](02-indexing.md) | Point identity, collection lifecycle, payload filters, testing without Docker |
 | [03 — Retrieval & evaluation](03-retrieval-and-evaluation.md) | Dense search, the eval harness, diagnosing a real miss |
 | [04 — Hybrid retrieval](04-hybrid-retrieval.md) | BM25, RRF, and a negative result worth defending |
-| _05 — Reranking_ | (with Module 5) |
-| _05 — Generation_ | (with Module 6) |
+| [05 — Reranking](05-reranking.md) | Cross-encoders, index alignment, and a bug about measuring |
+| _06 — Generation_ | (with Module 6) |
 
 ## How to use these
 
