@@ -43,3 +43,4 @@ Status | Date
 | [0010](0010-retriever-agnostic-eval-harness.md) | A retriever-agnostic evaluation harness | Accepted |
 | [0011](0011-bm25-sparse-retrieval.md) | BM25 sparse retrieval with a shared tokenizer | Accepted |
 | [0012](0012-rrf-hybrid-fusion.md) | Reciprocal Rank Fusion for hybrid retrieval | Accepted |
+| [0013](0013-cross-encoder-reranking.md) | Cross-encoder reranking, and fail-open as a measurement hazard | Accepted |
