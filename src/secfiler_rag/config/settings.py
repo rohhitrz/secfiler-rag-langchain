@@ -112,6 +112,25 @@ class Settings(BaseSettings):
         "blast radius when one request fails.",
     )
 
+    # --- Generation --------------------------------------------------------
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        description="Chat model for answer generation.",
+    )
+    llm_temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="0 for extractive, grounded answers. Higher temperature buys "
+        "variety we do not want when every claim must trace to a filing.",
+    )
+    max_context_tokens: int = Field(
+        default=4000,
+        gt=0,
+        description="Token ceiling for assembled context. Budgeted explicitly rather "
+        "than hoped for — silent truncation drops the chunk retrieval worked to find.",
+    )
+
     # --- Reranking ---------------------------------------------------------
     cohere_api_key: SecretStr | None = Field(
         default=None,

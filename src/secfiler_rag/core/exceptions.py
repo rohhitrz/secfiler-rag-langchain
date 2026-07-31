@@ -38,6 +38,14 @@ class EvaluationError(SecfilerRagError):
     """An evaluation dataset is missing, malformed, or internally invalid."""
 
 
+class GenerationError(SecfilerRagError):
+    """An answer could not be produced.
+
+    Not raised when the corpus simply lacks the answer — a refusal is a valid
+    result, not an error.
+    """
+
+
 class IndexingError(SecfilerRagError):
     """Embedding or vector-store writing failed.
 

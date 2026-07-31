@@ -8,6 +8,7 @@ one-way dependency rule.
 
 from secfiler_rag.core.exceptions import (
     ConfigurationError,
+    GenerationError,
     IndexingError,
     IngestionError,
     SecfilerRagError,
@@ -16,6 +17,7 @@ from secfiler_rag.core.logging import configure_logging, get_logger
 
 __all__ = [
     "ConfigurationError",
+    "GenerationError",
     "IndexingError",
     "IngestionError",
     "SecfilerRagError",
